@@ -103,12 +103,26 @@ CMD ["R", "-e", "shiny::runApp('/home/Desktop/ShinyToDocker/LeishmaniaInfectome/
 
 ### 2 - Run the Dockerfile document ###
 
-You can build the docker image with the following command:
+# You can build the docker image with the following command: #
 
 sudo docker build -t ghcr.io/afraderasola/shinydocker/leishmania_infectome .
 
-ghcr.io/afraderasola/ takes to my github page; there are other options where to allocate the image, like gitlab.
+# ghcr.io/afraderasola/ takes to my github page; there are other options where to allocate the image, like gitlab. You then should check that the image build work but running it with the following command: #
 
+sudo docker run -p 3838:3838 ghcr.io/afraderasola/shinydocker/leishmania_infectome
 
+# If the image works, you should get a "listening" message and you should be able to open the app on a browser #
 
+### 3 - Push the image to a repository ###
 
+# If the image works as expected, you can push it the repository with the following command: #
+
+sudo docker push ghcr.io/afraderasola/shinydocker/leishmania_infectome:latest
+
+### 4 - Pull the image to another system ###
+
+# Once the image is on the repository, you can pull it to another system (e.g., the butterVM server) and get it running there:
+
+sudo docker pull ghcr.io/afraderasola/shinydocker/leishmania_infectome:latest
+
+# That's it! You should now have your new docker shiny app running! #
