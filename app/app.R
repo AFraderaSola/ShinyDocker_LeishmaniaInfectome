@@ -16,6 +16,10 @@ library(tidyr)
 library(rMQanalysis)
 library(shinyBS)
 library(DT)
+library(shinythemes)
+library(mailtoR)
+library(viridis)
+set.seed(666)
 
 ############################
 ######### Script ###########

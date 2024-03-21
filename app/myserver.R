@@ -16,97 +16,32 @@ library(tidyr)
 library(rMQanalysis)
 library(shinyBS)
 library(DT)
+library(mailtoR)
+library(viridis)
+set.seed(666)
 
 ############################
 ####### Variables ##########
 ############################
 
-hours <- c("0h", "0.5h", "2h", "6h", "12h", "24h", "48h", "72h")
+load("./InputFiles/01_LInfantum_Data.RData")
+load("./InputFiles/02_LMajor_Data.RData")
+load("./InputFiles/03_LMexicana_Data.RData")
+load("./InputFiles/04_Orthology_Data.RData")
 
-df_infantum <- read.csv("./InputFiles/Database_data_infantum.csv")
+############################
+####### Functions ##########
+############################
 
-inf_sub <- unique(df_infantum$TimePoint)
-
-for (i in 1:length(hours)) {
-  
-  df_infantum$TimePoint <- gsub(pattern = inf_sub[i], replacement = hours[i], df_infantum$TimePoint)
-  
-}
-
-df_infantum$Replica <- as.character(df_infantum$Replica)
-
-df_major <- read.csv("./InputFiles/Database_data_major.csv")
-
-mjr_sub <- unique(df_major$TimePoint)
-
-for (i in 1:length(hours)) {
-  
-  df_major$TimePoint <- gsub(pattern = mjr_sub[i], replacement = hours[i], df_major$TimePoint)
+createLink <- function(species, val) {
+  if (species == "Mouse") {
+    val_sub <- gsub(pattern = "\\..*",replacement = "",x = val)
+    sprintf('<a href="https://mart.ensembl.org/Mus_musculus/Gene/Summary?db=core;g=%s" target="_blank" class="btn btn-link" role="button">Ensembl</a>',val_sub)
+  }else{
+    sprintf('<a href="https://tritrypdb.org/tritrypdb/app/record/gene/%s" target="_blank" class="btn btn-link" role="button">TriTrypDB</a>',val)
+  }
   
 }
-
-df_major$Replica <- as.character(df_major$Replica)
-
-df_mexicana <- read.csv("./InputFiles/Database_data_mexicana.csv")
-
-mex_sub <- unique(df_mexicana$TimePoint)
-
-for (i in 1:length(hours)) {
-  
-  df_mexicana$TimePoint <- gsub(pattern = mex_sub[i], replacement = hours[i], df_mexicana$TimePoint)
-  
-}
-
-df_mexicana$Replica <- as.character(df_mexicana$Replica)
-
-test_infantum <- read.csv("./InputFiles/Test_data_infantum.csv")
-
-for (i in 1:length(hours)) {
-  
-  test_infantum$group1 <- gsub(pattern = inf_sub[i], replacement = hours[i], test_infantum$group1)
-  test_infantum$group2 <- gsub(pattern = inf_sub[i], replacement = hours[i], test_infantum$group2)
-  
-}
-
-test_major <- read.csv("./InputFiles/Test_data_major.csv")
-
-for (i in 1:length(hours)) {
-  
-  test_major$group1 <- gsub(pattern = mjr_sub[i], replacement = hours[i], test_major$group1)
-  test_major$group2 <- gsub(pattern = mjr_sub[i], replacement = hours[i], test_major$group2)
-  
-}
-
-test_mexicana <- read.csv("./InputFiles/Test_data_mexicana.csv")
-
-for (i in 1:length(hours)) {
-  
-  test_mexicana$group1 <- gsub(pattern = mex_sub[i], replacement = hours[i], test_mexicana$group1)
-  test_mexicana$group2 <- gsub(pattern = mex_sub[i], replacement = hours[i], test_mexicana$group2)
-  
-}
-
-full_infantum <- read.csv("./InputFiles/QuantifiedProteins_infantum.csv")
-
-full_major <- read.csv("./InputFiles/QuantifiedProteins_major.csv")
-
-full_mexicana <- read.csv("./InputFiles/QuantifiedProteins_mexicana.csv")
-
-colors_infantum <- colorRampPalette(c("#000000", "#00A651"))(8)
-
-colors_major <- colorRampPalette(c("#000000", "#EE2A7B"))(8)
-
-colors_mexicana <- colorRampPalette(c("#000000", "#2B3990"))(8)
-
-# hm_pal <- c(rep("white",each=5), brewer.pal(9,"Blues"))
-
-hm_pal <- colorRampPalette(brewer.pal(9,"Blues"))(15)
-
-orth_df <- read.csv("./InputFiles/Leishmania_Orthologs.csv")
-
-colnames(orth_df)[2] <- "#Species"
-
-colnames(orth_df)[4] <- "Alg. Conn."
 
 ############################
 ######### Script ###########
@@ -119,16 +54,17 @@ server <- function(input, output, session) {
   # Modify the different data sets in function of
   # user's input
   
-  
-  
   ##### L. infantum ####
   
   ## Main data table
   
   infantum_MainDataTable1 <- reactive({
     my_main_table_data <- df_infantum 
-    if(input$infantum_ui_datasetID != 'All') {
+    if(input$infantum_ui_datasetID != paste0(unique(df_infantum$Species),collapse = " & ")) {
       my_main_table_data <- df_infantum %>% filter(Species == input$infantum_ui_datasetID)
+    }
+    if(length(input$infantum_ui_timepointID) > 0) {
+      my_main_table_data <- my_main_table_data %>% filter(TimePoint %in% input$infantum_ui_timepointID)
     }
     my_main_table_data
   })
@@ -139,12 +75,28 @@ server <- function(input, output, session) {
     my_main_table_data
   })
   
+  infantum_MainDataTable3 <- reactive({
+    my_main_table_data <- infantum_MainDataTable1()
+    my_main_table_data$TimePoint <- factor(x = my_main_table_data$TimePoint, levels = unique(my_main_table_data$TimePoint))
+    my_main_table_data <- my_main_table_data %>%
+      group_by(Majority.protein.IDs,TimePoint,Species)%>%
+      summarize("mean(LFQ)" = mean(Value, na.rm=TRUE))
+    my_main_table_data$Database  <- "Jnk"
+    my_main_table_data[my_main_table_data$Species == "M. musculus",]$Database <- createLink("Mouse", my_main_table_data[my_main_table_data$Species == "M. musculus",]$Majority.protein.IDs)
+    my_main_table_data[my_main_table_data$Species != "M. musculus",]$Database <- createLink("Leishmania", my_main_table_data[my_main_table_data$Species != "M. musculus",]$Majority.protein.IDs)
+    my_main_table_data
+  })
+  
   ## Test data table
   
   infantum_TestDataTable1 <- reactive({
     my_test_table_data <- test_infantum 
-    if(input$infantum_ui_datasetID != 'All') {
+    if(input$infantum_ui_datasetID != paste0(unique(df_infantum$Species),collapse = " & ")) {
       my_test_table_data <- test_infantum %>% filter(Species == input$infantum_ui_datasetID)
+    }
+    if(length(input$infantum_ui_timepointID) > 0) {
+      my_test_table_data <- my_test_table_data %>% filter(group1 %in% input$infantum_ui_timepointID)
+      my_test_table_data <- my_test_table_data %>% filter(group2 %in% input$infantum_ui_timepointID)
     }
     my_test_table_data
   })
@@ -159,8 +111,20 @@ server <- function(input, output, session) {
   
   infantum_FullDataTable1 <- reactive({
     my_full_table_data <- full_infantum 
-    if(input$infantum_ui_datasetID != 'All') {
+    if(input$infantum_ui_datasetID != paste0(unique(df_infantum$Species),collapse = " & ")) {
       my_full_table_data <- full_infantum %>% filter(Species == input$infantum_ui_datasetID)
+    }
+    if(length(input$infantum_ui_timepointID) > 0) {
+      
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+      my_pattern <- paste0(collapse = "|",  
+                           c(paste0(collapse = "|",
+                                    colnames(full_infantum)[1:11]),
+                             paste0(collapse = "|",
+                                    infantum_time_df_ui$time_point)))
+      
+      my_full_table_data <- my_full_table_data[,grep(pattern = my_pattern,x = colnames(my_full_table_data))]
+    
     }
     my_full_table_data
   })
@@ -181,8 +145,11 @@ server <- function(input, output, session) {
   
   major_MainDataTable1 <- reactive({
     my_main_table_data <- df_major 
-    if(input$major_ui_datasetID != 'All') {
+    if(input$major_ui_datasetID != paste0(unique(df_major$Species),collapse = " & ")) {
       my_main_table_data <- df_major %>% filter(Species == input$major_ui_datasetID)
+    }
+    if(length(input$major_ui_timepointID) > 0) {
+      my_main_table_data <- my_main_table_data %>% filter(TimePoint %in% input$major_ui_timepointID)
     }
     my_main_table_data
   })
@@ -193,12 +160,28 @@ server <- function(input, output, session) {
     my_main_table_data
   })
   
+  major_MainDataTable3 <- reactive({
+    my_main_table_data <- major_MainDataTable1()
+    my_main_table_data$TimePoint <- factor(x = my_main_table_data$TimePoint, levels = unique(my_main_table_data$TimePoint))
+    my_main_table_data <- my_main_table_data %>%
+      group_by(Majority.protein.IDs,TimePoint,Species)%>%
+      summarize("mean(LFQ)" = mean(Value, na.rm=TRUE))
+    my_main_table_data$Database  <- "Jnk"
+    my_main_table_data[my_main_table_data$Species == "M. musculus",]$Database <- createLink("Mouse", my_main_table_data[my_main_table_data$Species == "M. musculus",]$Majority.protein.IDs)
+    my_main_table_data[my_main_table_data$Species != "M. musculus",]$Database <- createLink("Leishmania", my_main_table_data[my_main_table_data$Species != "M. musculus",]$Majority.protein.IDs)
+    my_main_table_data
+  })
+  
   ## Test data table
   
   major_TestDataTable1 <- reactive({
     my_test_table_data <- test_major 
-    if(input$major_ui_datasetID != 'All') {
+    if(input$major_ui_datasetID != paste0(unique(df_major$Species),collapse = " & ")) {
       my_test_table_data <- test_major %>% filter(Species == input$major_ui_datasetID)
+    }
+    if(length(input$major_ui_timepointID) > 0) {
+      my_test_table_data <- my_test_table_data %>% filter(group1 %in% input$major_ui_timepointID)
+      my_test_table_data <- my_test_table_data %>% filter(group2 %in% input$major_ui_timepointID)
     }
     my_test_table_data
   })
@@ -213,8 +196,20 @@ server <- function(input, output, session) {
   
   major_FullDataTable1 <- reactive({
     my_full_table_data <- full_major 
-    if(input$major_ui_datasetID != 'All') {
+    if(input$major_ui_datasetID != paste0(unique(df_major$Species),collapse = " & ")) {
       my_full_table_data <- full_major %>% filter(Species == input$major_ui_datasetID)
+    }
+    if(length(input$major_ui_timepointID) > 0) {
+      
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+      my_pattern <- paste0(collapse = "|",  
+                           c(paste0(collapse = "|",
+                                    colnames(full_major)[1:11]),
+                             paste0(collapse = "|",
+                                    major_time_df_ui$time_point)))
+      
+      my_full_table_data <- my_full_table_data[,grep(pattern = my_pattern,x = colnames(my_full_table_data))]
+      
     }
     my_full_table_data
   })
@@ -235,8 +230,11 @@ server <- function(input, output, session) {
   
   mexicana_MainDataTable1 <- reactive({
     my_main_table_data <- df_mexicana 
-    if(input$mexicana_ui_datasetID != 'All') {
+    if(input$mexicana_ui_datasetID != paste0(unique(df_mexicana$Species),collapse = " & ")) {
       my_main_table_data <- df_mexicana %>% filter(Species == input$mexicana_ui_datasetID)
+    }
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      my_main_table_data <- my_main_table_data %>% filter(TimePoint %in% input$mexicana_ui_timepointID)
     }
     my_main_table_data
   })
@@ -247,12 +245,28 @@ server <- function(input, output, session) {
     my_main_table_data
   })
   
+  mexicana_MainDataTable3 <- reactive({
+    my_main_table_data <- mexicana_MainDataTable1()
+    my_main_table_data$TimePoint <- factor(x = my_main_table_data$TimePoint, levels = unique(my_main_table_data$TimePoint))
+    my_main_table_data <- my_main_table_data %>%
+      group_by(Majority.protein.IDs,TimePoint,Species)%>%
+      summarize("mean(LFQ)" = mean(Value, na.rm=TRUE))
+    my_main_table_data$Database  <- "Jnk"
+    my_main_table_data[my_main_table_data$Species == "M. musculus",]$Database <- createLink("Mouse", my_main_table_data[my_main_table_data$Species == "M. musculus",]$Majority.protein.IDs)
+    my_main_table_data[my_main_table_data$Species != "M. musculus",]$Database <- createLink("Leishmania", my_main_table_data[my_main_table_data$Species != "M. musculus",]$Majority.protein.IDs)
+    my_main_table_data
+  })
+  
   ## Test data table
   
   mexicana_TestDataTable1 <- reactive({
     my_test_table_data <- test_mexicana 
-    if(input$mexicana_ui_datasetID != 'All') {
+    if(input$mexicana_ui_datasetID != paste0(unique(df_mexicana$Species),collapse = " & ")) {
       my_test_table_data <- test_mexicana %>% filter(Species == input$mexicana_ui_datasetID)
+    }
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      my_test_table_data <- my_test_table_data %>% filter(group1 %in% input$mexicana_ui_timepointID)
+      my_test_table_data <- my_test_table_data %>% filter(group2 %in% input$mexicana_ui_timepointID)
     }
     my_test_table_data
   })
@@ -267,8 +281,20 @@ server <- function(input, output, session) {
   
   mexicana_FullDataTable1 <- reactive({
     my_full_table_data <- full_mexicana 
-    if(input$mexicana_ui_datasetID != 'All') {
+    if(input$mexicana_ui_datasetID != paste0(unique(df_mexicana$Species),collapse = " & ")) {
       my_full_table_data <- full_mexicana %>% filter(Species == input$mexicana_ui_datasetID)
+    }
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+      my_pattern <- paste0(collapse = "|",  
+                           c(paste0(collapse = "|",
+                                    colnames(full_mexicana)[1:11]),
+                             paste0(collapse = "|",
+                                    mexicana_time_df_ui$time_point)))
+      
+      my_full_table_data <- my_full_table_data[,grep(pattern = my_pattern,x = colnames(my_full_table_data))]
+      
     }
     my_full_table_data
   })
@@ -290,10 +316,10 @@ server <- function(input, output, session) {
   #### Main table output  
   
   output$infantum_MainDataTable <- renderDataTable({
-    infantum_MainDataTable1() %>%
-      datatable(options = list(pageLength = 4, autoWidth = TRUE), 
-                rownames = F) %>%
-      formatRound('Value', digits = 2)
+    infantum_MainDataTable3() %>%
+      datatable(options = list(pageLength = 8, autoWidth = TRUE), 
+                rownames = F,escape = FALSE) %>%
+      formatRound("mean(LFQ)", digits = 2)
   })
   
   infantum_MainDataTable_proxy <- dataTableProxy('infantum_MainDataTable')
@@ -304,14 +330,25 @@ server <- function(input, output, session) {
     
     # Load and format the data
     
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
     plot_df_infantum <- infantum_FullDataTable1()
     pca_columns <- grep(pattern = "^imputed.log2.LFQ.intensity.", colnames(plot_df_infantum))
     pca <- prcomp(t(na.omit(plot_df_infantum[,pca_columns])), scale.=TRUE)
     percentVar <- pca$sdev^2/sum(pca$sdev^2)
     scores <- data.frame(pca$x[,c("PC1","PC2")])
     scores$PC2 <- scores$PC2 * -1
-    scores$TimePoint <- factor(rep(c("0h", "0.5h", "2h", "6h", "12h", "24h", "48h", "72h"), each = 4), levels = c("0h", "0.5h", "2h", "6h", "12h", "24h", "48h", "72h"))
+    scores$TimePoint <- factor(rep(infantum_time_df_ui$hour, each = 4), levels = infantum_time_df_ui$hour)
     scores$Label <- gsub(".*_", replacement = "", x = gsub(pattern = "^imputed.log2.LFQ.intensity.",replacement = "",rownames(scores)))
+    
+    if (length(infantum_time_df_ui$hour)>1) {
+      colors_infantum <- colorRampPalette(c("#000000", "#00A651"))(length(infantum_time_df_ui$hour))
+    }else{
+      colors_infantum <- "#00A651"
+    }
     
     # Input plot
     
@@ -342,14 +379,19 @@ server <- function(input, output, session) {
     
     # Load and format the data
     
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
     plot_df_infantum <- infantum_FullDataTable1()
     lfq <- plot_df_infantum[, grep("^imputed.log2.LFQ.intensity.", names(plot_df_infantum))]
     colnames(lfq) <- gsub("^imputed.log2.LFQ.intensity.", "", colnames(lfq))
     pattern <- unique(gsub(pattern = "_.*", replacement = "", colnames(lfq)))
     
-    for (i in 1:length(hours)) {
+    for (i in 1:length(infantum_time_df_ui$hour)) {
       
-      colnames(lfq) <- gsub(pattern = pattern[i], replacement = hours[i], colnames(lfq))
+      colnames(lfq) <- gsub(pattern = pattern[i], replacement = infantum_time_df_ui$hour[i], colnames(lfq))
       
     }
     
@@ -365,6 +407,22 @@ server <- function(input, output, session) {
     
     # Input plot
     
+    hm_pal <- viridis(n = 15,option = "G",direction = -1)
+    
+    # infantum_HeatMap <- pheatmap(corr,
+    #                              col=hm_pal,
+    #                              cluster_cols = F,
+    #                              cluster_rows = F,
+    #                              show_rownames = F,
+    #                              show_colnames = T,
+    #                              trace = "none",
+    #                              # annotation_col = df,
+    #                              # annotation_row = df,
+    #                              # annotation_colors = anno_colors,
+    #                              # annotation_names_row = T,
+    #                              border_color=NA,
+    #                              fontsize = 12)
+    
     infantum_HeatMap <- gplots::heatmap.2(corr,
                                          trace="none",
                                          Colv=T,
@@ -372,13 +430,13 @@ server <- function(input, output, session) {
                                          dendrogram="column",
                                          density.info="density",
                                          srtCol=45,
-                                         margins=c(10, 10), 
+                                         margins=c(10, 10),
                                          key.xlab="Pearson's correlation coefficient",
                                          key.title="",
                                          keysize=1.5,
                                          col=hm_pal)
     
-    print(infantum_HeatMap)
+    infantum_HeatMap
     
   })
   
@@ -387,8 +445,6 @@ server <- function(input, output, session) {
   output$infantum_ClusterLinePlot <- renderPlot({
     
     # Fixed variables
-    
-    set.seed(666)
     
     shortcut <- "inf"
     
@@ -401,10 +457,6 @@ server <- function(input, output, session) {
     xdim <- input$infantum_xDIM
     
     ydim <- input$infantum_yDIM
-    
-    # xdim <- 2 
-    # 
-    # ydim <- 3
     
     # Script
     
@@ -428,7 +480,13 @@ server <- function(input, output, session) {
     
     # Data tidy
     
-    colnames(pg_clust) <- c("Majority.Protein.IDs",paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "") )
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
+    
+    colnames(pg_clust) <- c("Majority.Protein.IDs",infantum_time_df_ui$hour)
     
     # Compute the z-score
     
@@ -438,7 +496,7 @@ server <- function(input, output, session) {
     
     prep.pg_clust <- data.frame(as.matrix(pg_clust[,2:ncol(pg_clust)]))
     
-    colnames(prep.pg_clust) <- paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "")
+    colnames(prep.pg_clust) <- infantum_time_df_ui$hour
     
     rownames(prep.pg_clust) <- pg_clust$Majority.Protein.IDs
     
@@ -469,7 +527,7 @@ server <- function(input, output, session) {
       
       data <- data %>% rownames_to_column('ID') %>% pivot_longer(-ID, names_to = "TimePoint", values_to = "Value")
       
-      data$TimePoint <- factor(data$TimePoint, levels = c("0h","0.5h","2h","6h","12h","24h",'48h',"72h"))
+      data$TimePoint <- factor(data$TimePoint, levels = infantum_time_df_ui$hour)
       
       plot <- ggplot(data=data, aes(x=TimePoint, y=Value, group=ID)) +
         geom_line(color="lightgrey")+
@@ -577,8 +635,6 @@ server <- function(input, output, session) {
     
     # Fixed variables
     
-    set.seed(666)
-    
     shortcut <- "inf"
     
     pg_LFQ <- infantum_FullDataTable1()
@@ -590,10 +646,6 @@ server <- function(input, output, session) {
     xdim <- input$infantum_xDIM
     
     ydim <- input$infantum_yDIM
-    
-    # xdim <- 2 
-    # 
-    # ydim <- 3
     
     # Script
     
@@ -617,7 +669,13 @@ server <- function(input, output, session) {
     
     # Data tidy
     
-    colnames(pg_clust) <- c("Majority.Protein.IDs",paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "") )
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
+    
+    colnames(pg_clust) <- c("Majority.Protein.IDs", infantum_time_df_ui$hour)
     
     # Compute the z-score
     
@@ -627,7 +685,7 @@ server <- function(input, output, session) {
     
     prep.pg_clust <- data.frame(as.matrix(pg_clust[,2:ncol(pg_clust)]))
     
-    colnames(prep.pg_clust) <- paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "")
+    colnames(prep.pg_clust) <- infantum_time_df_ui$hour
     
     rownames(prep.pg_clust) <- pg_clust$Majority.Protein.IDs
     
@@ -668,9 +726,9 @@ server <- function(input, output, session) {
                sub(".*", "L. infantum", data$Species),
                sub("", "", data$Species))
       
-      data$TimePoint <- factor(data$TimePoint, levels = c("0h","0.5h","2h","6h","12h","24h",'48h',"72h"))
+      data$TimePoint <- factor(data$TimePoint, levels = infantum_time_df_ui$hour)
       
-      data <- data[data$TimePoint == "0h",]
+      data <- data[data$TimePoint == infantum_time_df_ui$hour[1],]
       
       data <- data %>%
         group_by(Species) %>%
@@ -704,6 +762,12 @@ server <- function(input, output, session) {
   #### Pairwise analysis  time course output 
   
   output$infantum_Boxplot <- renderPlot({
+    
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
     
     # Load  and format the plot data
     
@@ -886,27 +950,36 @@ server <- function(input, output, session) {
     
     ## Filter the data frame for data set user input.
     
-    if (filter == "All") {
+    if (filter == paste0(unique(df_infantum$Species),collapse = " & ")) {
       pg_quant <- full_infantum
     }else{
       pg_quant <- full_infantum %>% filter(Species == filter)
     }
     
-    ## Change the column pater to user friendly reading (i. e., 0h instead of inft000).
+    ## Change the column pattern to user friendly reading (i. e., 0h instead of inft000).
     
-    for (i in 1:length(hours)) {
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
+    
+    for (i in 1:length(infantum_time_df_ui$hour)) {
       
-      colnames(pg_quant) <- gsub(pattern = inf_sub[i], replacement = hours[i], colnames(pg_quant))
+      colnames(pg_quant) <- gsub(pattern = infantum_time_df_ui$time_point[i], replacement = infantum_time_df_ui$hour[i], colnames(pg_quant))
       
     }
     
     ## Dummy plot to show until user selection.
     
+    dummy_df <- data.frame(x = c(-5,5),
+                           y = c(0,10))
+    
     volcanoplot <-
-      ggplot(pg_quant, aes(x=difference_72h_0h, y=difference_72h_48h)) +
+      ggplot(dummy_df, aes(x=x, y=y))+
       theme_minimal()+
-      ylab("-log10(p.value)") +
-      xlab("log2(FoldChange)") +
+      ylab("-log<sub>10</sub>(p-value)") + 
+      xlab("log<sub>2</sub>(Fold change)") +
       theme(legend.text = element_text(size = 12))+
       theme(legend.key.size = unit(1, 'cm'))+
       theme(legend.position="top")+
@@ -957,6 +1030,7 @@ server <- function(input, output, session) {
                               pvalue=enrich_pvalue,
                               linetype=volcano_threshold_linetype,
                               size=volcano_threshold_linesize)
+      
       pg_quant$enriched <- as.factor(my_enriched$enriched)
       
       
@@ -1030,10 +1104,10 @@ server <- function(input, output, session) {
         scale_size_manual(values=c(`TRUE.FALSE`=1, `FALSE.FALSE`=.5, `TRUE.TRUE`=1.2, `FALSE.TRUE`=1),
                           guide="none")+
         coord_cartesian(xlim=c(-max_x_value,max_x_value), ylim=c(-.8,max_y_value)) +
-        ylab("-log10(p.value)") +
-        xlab("log2(FoldChange)") +
-        annotate('text', label=exp_a, x=max_x_value / 2, y=-.4) +
-        annotate('text', label=exp_b, x=-max_x_value / 2, y=-.4)+
+        ylab("-log<sub>10</sub>(p-value)") + 
+        xlab("log<sub>2</sub>(Fold change)") +
+        annotate('text', label=exp_a, x=max_x_value / 2, y=-.4,size = 6) +
+        annotate('text', label=exp_b, x=-max_x_value / 2, y=-.4,size = 6)+
         theme_minimal()+
         theme(legend.text = element_text(size = 14))+
         theme(legend.key.size = unit(1, 'cm'))+
@@ -1055,10 +1129,10 @@ server <- function(input, output, session) {
   #### Main table output  
   
   output$major_MainDataTable <- renderDataTable({
-    major_MainDataTable1() %>%
-      datatable(options = list(pageLength = 4, autoWidth = TRUE), 
-                rownames = F) %>%
-      formatRound('Value', digits = 2)
+    major_MainDataTable3() %>%
+      datatable(options = list(pageLength = 8, autoWidth = TRUE), 
+                rownames = F,escape = FALSE) %>%
+      formatRound("mean(LFQ)", digits = 2)
   })
   
   major_MainDataTable_proxy <- dataTableProxy('major_MainDataTable')
@@ -1069,14 +1143,25 @@ server <- function(input, output, session) {
     
     # Load and format the data
     
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
     plot_df_major <- major_FullDataTable1()
     pca_columns <- grep(pattern = "^imputed.log2.LFQ.intensity.", colnames(plot_df_major))
     pca <- prcomp(t(na.omit(plot_df_major[,pca_columns])), scale.=TRUE)
     percentVar <- pca$sdev^2/sum(pca$sdev^2)
     scores <- data.frame(pca$x[,c("PC1","PC2")])
     scores$PC2 <- scores$PC2 * -1
-    scores$TimePoint <- factor(rep(c("0h", "0.5h", "2h", "6h", "12h", "24h", "48h", "72h"), each = 4), levels = c("0h", "0.5h", "2h", "6h", "12h", "24h", "48h", "72h"))
+    scores$TimePoint <- factor(rep(major_time_df_ui$hour, each = 4), levels = major_time_df_ui$hour)
     scores$Label <- gsub(".*_", replacement = "", x = gsub(pattern = "^imputed.log2.LFQ.intensity.",replacement = "",rownames(scores)))
+    
+    if (length(major_time_df_ui$hour)>1) {
+      colors_major <- colorRampPalette(c("#000000", "#EE2A7B"))(length(major_time_df_ui$hour))
+    }else{
+      colors_major <- "#EE2A7B"
+    }
     
     # Input plot
     
@@ -1107,14 +1192,19 @@ server <- function(input, output, session) {
     
     # Load and format the data
     
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
     plot_df_major <- major_FullDataTable1()
     lfq <- plot_df_major[, grep("^imputed.log2.LFQ.intensity.", names(plot_df_major))]
     colnames(lfq) <- gsub("^imputed.log2.LFQ.intensity.", "", colnames(lfq))
     pattern <- unique(gsub(pattern = "_.*", replacement = "", colnames(lfq)))
     
-    for (i in 1:length(hours)) {
+    for (i in 1:length(major_time_df_ui$hour)) {
       
-      colnames(lfq) <- gsub(pattern = pattern[i], replacement = hours[i], colnames(lfq))
+      colnames(lfq) <- gsub(pattern = pattern[i], replacement = major_time_df_ui$hour[i], colnames(lfq))
       
     }
     
@@ -1130,6 +1220,22 @@ server <- function(input, output, session) {
     
     # Input plot
     
+    hm_pal <- viridis(n = 15,option = "G",direction = -1)
+    
+    # major_HeatMap <- pheatmap(corr,
+    #                              col=hm_pal,
+    #                              cluster_cols = F,
+    #                              cluster_rows = F,
+    #                              show_rownames = F,
+    #                              show_colnames = T,
+    #                              trace = "none",
+    #                              # annotation_col = df,
+    #                              # annotation_row = df,
+    #                              # annotation_colors = anno_colors,
+    #                              # annotation_names_row = T,
+    #                              border_color=NA,
+    #                              fontsize = 12)
+    
     major_HeatMap <- gplots::heatmap.2(corr,
                                           trace="none",
                                           Colv=T,
@@ -1137,13 +1243,13 @@ server <- function(input, output, session) {
                                           dendrogram="column",
                                           density.info="density",
                                           srtCol=45,
-                                          margins=c(10, 10), 
+                                          margins=c(10, 10),
                                           key.xlab="Pearson's correlation coefficient",
                                           key.title="",
                                           keysize=1.5,
                                           col=hm_pal)
     
-    print(major_HeatMap)
+    major_HeatMap
     
   })
   
@@ -1152,8 +1258,6 @@ server <- function(input, output, session) {
   output$major_ClusterLinePlot <- renderPlot({
     
     # Fixed variables
-    
-    set.seed(666)
     
     shortcut <- "major"
     
@@ -1166,10 +1270,6 @@ server <- function(input, output, session) {
     xdim <- input$major_xDIM
     
     ydim <- input$major_yDIM
-    
-    # xdim <- 2 
-    # 
-    # ydim <- 3
     
     # Script
     
@@ -1193,7 +1293,13 @@ server <- function(input, output, session) {
     
     # Data tidy
     
-    colnames(pg_clust) <- c("Majority.Protein.IDs",paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "") )
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
+    
+    colnames(pg_clust) <- c("Majority.Protein.IDs",major_time_df_ui$hour)
     
     # Compute the z-score
     
@@ -1203,7 +1309,7 @@ server <- function(input, output, session) {
     
     prep.pg_clust <- data.frame(as.matrix(pg_clust[,2:ncol(pg_clust)]))
     
-    colnames(prep.pg_clust) <- paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "")
+    colnames(prep.pg_clust) <- major_time_df_ui$hour
     
     rownames(prep.pg_clust) <- pg_clust$Majority.Protein.IDs
     
@@ -1211,12 +1317,12 @@ server <- function(input, output, session) {
     
     som_grid <- somgrid(xdim = xdim, ydim = ydim, topo="hexagonal") # 3x3=9 clusters
     
-    som_model_major <- som(as.matrix(prep.pg_clust), 
+    som_model_inf <- som(as.matrix(prep.pg_clust), 
                          grid=som_grid, 
                          rlen=1000, 
                          alpha=c(0.05,0.01))    
     
-    nclust <- unique(som_model_major$unit.classif)
+    nclust <- unique(som_model_inf$unit.classif)
     
     # Plot the clusters
     
@@ -1230,11 +1336,11 @@ server <- function(input, output, session) {
     
     for (i in 1:length(nclust)) {
       
-      data <- as.data.frame(som_model_major$data[[1]][which(som_model_major$unit.classif==i),])
+      data <- as.data.frame(som_model_inf$data[[1]][which(som_model_inf$unit.classif==i),])
       
       data <- data %>% rownames_to_column('ID') %>% pivot_longer(-ID, names_to = "TimePoint", values_to = "Value")
       
-      data$TimePoint <- factor(data$TimePoint, levels = c("0h","0.5h","2h","6h","12h","24h",'48h',"72h"))
+      data$TimePoint <- factor(data$TimePoint, levels = major_time_df_ui$hour)
       
       plot <- ggplot(data=data, aes(x=TimePoint, y=Value, group=ID)) +
         geom_line(color="lightgrey")+
@@ -1270,7 +1376,7 @@ server <- function(input, output, session) {
       
       for (i in 1:length(nclust)) {
         
-        data <- as.data.frame(som_model_major$data[[1]][which(som_model_major$unit.classif==i),])
+        data <- as.data.frame(som_model_inf$data[[1]][which(som_model_inf$unit.classif==i),])
         
         data <- data %>% rownames_to_column('ID') %>% pivot_longer(-ID, names_to = "TimePoint", values_to = "Value")
         
@@ -1342,8 +1448,6 @@ server <- function(input, output, session) {
     
     # Fixed variables
     
-    set.seed(666)
-    
     shortcut <- "major"
     
     pg_LFQ <- major_FullDataTable1()
@@ -1355,10 +1459,6 @@ server <- function(input, output, session) {
     xdim <- input$major_xDIM
     
     ydim <- input$major_yDIM
-    
-    # xdim <- 2 
-    # 
-    # ydim <- 3
     
     # Script
     
@@ -1382,7 +1482,13 @@ server <- function(input, output, session) {
     
     # Data tidy
     
-    colnames(pg_clust) <- c("Majority.Protein.IDs",paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "") )
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
+    
+    colnames(pg_clust) <- c("Majority.Protein.IDs", major_time_df_ui$hour)
     
     # Compute the z-score
     
@@ -1392,7 +1498,7 @@ server <- function(input, output, session) {
     
     prep.pg_clust <- data.frame(as.matrix(pg_clust[,2:ncol(pg_clust)]))
     
-    colnames(prep.pg_clust) <- paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "")
+    colnames(prep.pg_clust) <- major_time_df_ui$hour
     
     rownames(prep.pg_clust) <- pg_clust$Majority.Protein.IDs
     
@@ -1400,12 +1506,12 @@ server <- function(input, output, session) {
     
     som_grid <- somgrid(xdim = xdim, ydim = ydim, topo="hexagonal") # 3x3=9 clusters
     
-    som_model_major <- som(as.matrix(prep.pg_clust), 
+    som_model_inf <- som(as.matrix(prep.pg_clust), 
                          grid=som_grid, 
                          rlen=1000, 
                          alpha=c(0.05,0.01))    
     
-    nclust <- unique(som_model_major$unit.classif)
+    nclust <- unique(som_model_inf$unit.classif)
     
     # Plot the clusters
     
@@ -1417,7 +1523,7 @@ server <- function(input, output, session) {
     
     for (i in 1:length(nclust)) {
       
-      data <- as.data.frame(som_model_major$data[[1]][which(som_model_major$unit.classif==i),])
+      data <- as.data.frame(som_model_inf$data[[1]][which(som_model_inf$unit.classif==i),])
       
       data <- data %>% rownames_to_column('ID') %>% pivot_longer(-ID, names_to = "TimePoint", values_to = "Value")
       
@@ -1433,9 +1539,9 @@ server <- function(input, output, session) {
                sub(".*", "L. major", data$Species),
                sub("", "", data$Species))
       
-      data$TimePoint <- factor(data$TimePoint, levels = c("0h","0.5h","2h","6h","12h","24h",'48h',"72h"))
+      data$TimePoint <- factor(data$TimePoint, levels = major_time_df_ui$hour)
       
-      data <- data[data$TimePoint == "0h",]
+      data <- data[data$TimePoint == major_time_df_ui$hour[1],]
       
       data <- data %>%
         group_by(Species) %>%
@@ -1469,6 +1575,12 @@ server <- function(input, output, session) {
   #### Pairwise analysis  time course output 
   
   output$major_Boxplot <- renderPlot({
+    
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
     
     # Load  and format the plot data
     
@@ -1651,27 +1763,36 @@ server <- function(input, output, session) {
     
     ## Filter the data frame for data set user input.
     
-    if (filter == "All") {
+    if (filter == paste0(unique(df_major$Species),collapse = " & ")) {
       pg_quant <- full_major
     }else{
       pg_quant <- full_major %>% filter(Species == filter)
     }
     
-    ## Change the column pater to user friendly reading (i. e., 0h instead of inft000).
+    ## Change the column pattern to user friendly reading (i. e., 0h instead of inft000).
     
-    for (i in 1:length(hours)) {
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
+    
+    for (i in 1:length(major_time_df_ui$hour)) {
       
-      colnames(pg_quant) <- gsub(pattern = mjr_sub[i], replacement = hours[i], colnames(pg_quant))
+      colnames(pg_quant) <- gsub(pattern = major_time_df_ui$time_point[i], replacement = major_time_df_ui$hour[i], colnames(pg_quant))
       
     }
     
     ## Dummy plot to show until user selection.
     
+    dummy_df <- data.frame(x = c(-5,5),
+                           y = c(0,10))
+    
     volcanoplot <-
-      ggplot(pg_quant, aes(x=difference_72h_0h, y=difference_72h_48h)) +
+      ggplot(dummy_df, aes(x=x, y=y))+
       theme_minimal()+
-      ylab("-log10(p.value)") +
-      xlab("log2(FoldChange)") +
+      ylab("-log<sub>10</sub>(p-value)") + 
+      xlab("log<sub>2</sub>(Fold change)") +
       theme(legend.text = element_text(size = 12))+
       theme(legend.key.size = unit(1, 'cm'))+
       theme(legend.position="top")+
@@ -1722,6 +1843,7 @@ server <- function(input, output, session) {
                               pvalue=enrich_pvalue,
                               linetype=volcano_threshold_linetype,
                               size=volcano_threshold_linesize)
+      
       pg_quant$enriched <- as.factor(my_enriched$enriched)
       
       
@@ -1795,10 +1917,10 @@ server <- function(input, output, session) {
         scale_size_manual(values=c(`TRUE.FALSE`=1, `FALSE.FALSE`=.5, `TRUE.TRUE`=1.2, `FALSE.TRUE`=1),
                           guide="none")+
         coord_cartesian(xlim=c(-max_x_value,max_x_value), ylim=c(-.8,max_y_value)) +
-        ylab("-log10(p.value)") +
-        xlab("log2(FoldChange)") +
-        annotate('text', label=exp_a, x=max_x_value / 2, y=-.4) +
-        annotate('text', label=exp_b, x=-max_x_value / 2, y=-.4)+
+        ylab("-log<sub>10</sub>(p-value)") + 
+        xlab("log<sub>2</sub>(Fold change)") +
+        annotate('text', label=exp_a, x=max_x_value / 2, y=-.4,size = 6) +
+        annotate('text', label=exp_b, x=-max_x_value / 2, y=-.4,size = 6)+
         theme_minimal()+
         theme(legend.text = element_text(size = 14))+
         theme(legend.key.size = unit(1, 'cm'))+
@@ -1815,16 +1937,15 @@ server <- function(input, output, session) {
     
   })
   
-  
   #### L. mexicana ####
   
   #### Main table output  
   
   output$mexicana_MainDataTable <- renderDataTable({
-    mexicana_MainDataTable1() %>%
-      datatable(options = list(pageLength = 4, autoWidth = TRUE), 
-                rownames = F) %>%
-      formatRound('Value', digits = 2)
+    mexicana_MainDataTable3() %>%
+      datatable(options = list(pageLength = 8, autoWidth = TRUE), 
+                rownames = F,escape = FALSE) %>%
+      formatRound("mean(LFQ)", digits = 2)
   })
   
   mexicana_MainDataTable_proxy <- dataTableProxy('mexicana_MainDataTable')
@@ -1835,14 +1956,25 @@ server <- function(input, output, session) {
     
     # Load and format the data
     
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
     plot_df_mexicana <- mexicana_FullDataTable1()
     pca_columns <- grep(pattern = "^imputed.log2.LFQ.intensity.", colnames(plot_df_mexicana))
     pca <- prcomp(t(na.omit(plot_df_mexicana[,pca_columns])), scale.=TRUE)
     percentVar <- pca$sdev^2/sum(pca$sdev^2)
     scores <- data.frame(pca$x[,c("PC1","PC2")])
     scores$PC2 <- scores$PC2 * -1
-    scores$TimePoint <- factor(rep(c("0h", "0.5h", "2h", "6h", "12h", "24h", "48h", "72h"), each = 4), levels = c("0h", "0.5h", "2h", "6h", "12h", "24h", "48h", "72h"))
+    scores$TimePoint <- factor(rep(mexicana_time_df_ui$hour, each = 4), levels = mexicana_time_df_ui$hour)
     scores$Label <- gsub(".*_", replacement = "", x = gsub(pattern = "^imputed.log2.LFQ.intensity.",replacement = "",rownames(scores)))
+    
+    if (length(mexicana_time_df_ui$hour)>1) {
+      colors_mexicana <- colorRampPalette(c("#000000", "#2B3990"))(length(mexicana_time_df_ui$hour))
+    }else{
+      colors_mexicana <- "#2B3990"
+    }
     
     # Input plot
     
@@ -1873,14 +2005,19 @@ server <- function(input, output, session) {
     
     # Load and format the data
     
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
     plot_df_mexicana <- mexicana_FullDataTable1()
     lfq <- plot_df_mexicana[, grep("^imputed.log2.LFQ.intensity.", names(plot_df_mexicana))]
     colnames(lfq) <- gsub("^imputed.log2.LFQ.intensity.", "", colnames(lfq))
     pattern <- unique(gsub(pattern = "_.*", replacement = "", colnames(lfq)))
     
-    for (i in 1:length(hours)) {
+    for (i in 1:length(mexicana_time_df_ui$hour)) {
       
-      colnames(lfq) <- gsub(pattern = pattern[i], replacement = hours[i], colnames(lfq))
+      colnames(lfq) <- gsub(pattern = pattern[i], replacement = mexicana_time_df_ui$hour[i], colnames(lfq))
       
     }
     
@@ -1896,6 +2033,22 @@ server <- function(input, output, session) {
     
     # Input plot
     
+    hm_pal <- viridis(n = 15,option = "G",direction = -1)
+    
+    # mexicana_HeatMap <- pheatmap(corr,
+    #                              col=hm_pal,
+    #                              cluster_cols = F,
+    #                              cluster_rows = F,
+    #                              show_rownames = F,
+    #                              show_colnames = T,
+    #                              trace = "none",
+    #                              # annotation_col = df,
+    #                              # annotation_row = df,
+    #                              # annotation_colors = anno_colors,
+    #                              # annotation_names_row = T,
+    #                              border_color=NA,
+    #                              fontsize = 12)
+    
     mexicana_HeatMap <- gplots::heatmap.2(corr,
                                           trace="none",
                                           Colv=T,
@@ -1903,13 +2056,13 @@ server <- function(input, output, session) {
                                           dendrogram="column",
                                           density.info="density",
                                           srtCol=45,
-                                          margins=c(10, 10), 
+                                          margins=c(10, 10),
                                           key.xlab="Pearson's correlation coefficient",
                                           key.title="",
                                           keysize=1.5,
                                           col=hm_pal)
     
-    print(mexicana_HeatMap)
+    mexicana_HeatMap
     
   })
   
@@ -1918,8 +2071,6 @@ server <- function(input, output, session) {
   output$mexicana_ClusterLinePlot <- renderPlot({
     
     # Fixed variables
-    
-    set.seed(666)
     
     shortcut <- "mex"
     
@@ -1932,10 +2083,6 @@ server <- function(input, output, session) {
     xdim <- input$mexicana_xDIM
     
     ydim <- input$mexicana_yDIM
-    
-    # xdim <- 2 
-    # 
-    # ydim <- 3
     
     # Script
     
@@ -1959,7 +2106,13 @@ server <- function(input, output, session) {
     
     # Data tidy
     
-    colnames(pg_clust) <- c("Majority.Protein.IDs",paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "") )
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
+    
+    colnames(pg_clust) <- c("Majority.Protein.IDs",mexicana_time_df_ui$hour)
     
     # Compute the z-score
     
@@ -1969,7 +2122,7 @@ server <- function(input, output, session) {
     
     prep.pg_clust <- data.frame(as.matrix(pg_clust[,2:ncol(pg_clust)]))
     
-    colnames(prep.pg_clust) <- paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "")
+    colnames(prep.pg_clust) <- mexicana_time_df_ui$hour
     
     rownames(prep.pg_clust) <- pg_clust$Majority.Protein.IDs
     
@@ -1977,12 +2130,12 @@ server <- function(input, output, session) {
     
     som_grid <- somgrid(xdim = xdim, ydim = ydim, topo="hexagonal") # 3x3=9 clusters
     
-    som_model_mex <- som(as.matrix(prep.pg_clust), 
+    som_model_inf <- som(as.matrix(prep.pg_clust), 
                          grid=som_grid, 
                          rlen=1000, 
                          alpha=c(0.05,0.01))    
     
-    nclust <- unique(som_model_mex$unit.classif)
+    nclust <- unique(som_model_inf$unit.classif)
     
     # Plot the clusters
     
@@ -1996,11 +2149,11 @@ server <- function(input, output, session) {
     
     for (i in 1:length(nclust)) {
       
-      data <- as.data.frame(som_model_mex$data[[1]][which(som_model_mex$unit.classif==i),])
+      data <- as.data.frame(som_model_inf$data[[1]][which(som_model_inf$unit.classif==i),])
       
       data <- data %>% rownames_to_column('ID') %>% pivot_longer(-ID, names_to = "TimePoint", values_to = "Value")
       
-      data$TimePoint <- factor(data$TimePoint, levels = c("0h","0.5h","2h","6h","12h","24h",'48h',"72h"))
+      data$TimePoint <- factor(data$TimePoint, levels = mexicana_time_df_ui$hour)
       
       plot <- ggplot(data=data, aes(x=TimePoint, y=Value, group=ID)) +
         geom_line(color="lightgrey")+
@@ -2036,7 +2189,7 @@ server <- function(input, output, session) {
       
       for (i in 1:length(nclust)) {
         
-        data <- as.data.frame(som_model_mex$data[[1]][which(som_model_mex$unit.classif==i),])
+        data <- as.data.frame(som_model_inf$data[[1]][which(som_model_inf$unit.classif==i),])
         
         data <- data %>% rownames_to_column('ID') %>% pivot_longer(-ID, names_to = "TimePoint", values_to = "Value")
         
@@ -2108,8 +2261,6 @@ server <- function(input, output, session) {
     
     # Fixed variables
     
-    set.seed(666)
-    
     shortcut <- "mex"
     
     pg_LFQ <- mexicana_FullDataTable1()
@@ -2121,10 +2272,6 @@ server <- function(input, output, session) {
     xdim <- input$mexicana_xDIM
     
     ydim <- input$mexicana_yDIM
-    
-    # xdim <- 2 
-    # 
-    # ydim <- 3
     
     # Script
     
@@ -2148,7 +2295,13 @@ server <- function(input, output, session) {
     
     # Data tidy
     
-    colnames(pg_clust) <- c("Majority.Protein.IDs",paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "") )
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
+    
+    colnames(pg_clust) <- c("Majority.Protein.IDs", mexicana_time_df_ui$hour)
     
     # Compute the z-score
     
@@ -2158,7 +2311,7 @@ server <- function(input, output, session) {
     
     prep.pg_clust <- data.frame(as.matrix(pg_clust[,2:ncol(pg_clust)]))
     
-    colnames(prep.pg_clust) <- paste(c("0","0.5","2","6","12","24",'48',"72"), 'h', sep = "")
+    colnames(prep.pg_clust) <- mexicana_time_df_ui$hour
     
     rownames(prep.pg_clust) <- pg_clust$Majority.Protein.IDs
     
@@ -2166,12 +2319,12 @@ server <- function(input, output, session) {
     
     som_grid <- somgrid(xdim = xdim, ydim = ydim, topo="hexagonal") # 3x3=9 clusters
     
-    som_model_mex <- som(as.matrix(prep.pg_clust), 
+    som_model_inf <- som(as.matrix(prep.pg_clust), 
                          grid=som_grid, 
                          rlen=1000, 
                          alpha=c(0.05,0.01))    
     
-    nclust <- unique(som_model_mex$unit.classif)
+    nclust <- unique(som_model_inf$unit.classif)
     
     # Plot the clusters
     
@@ -2183,7 +2336,7 @@ server <- function(input, output, session) {
     
     for (i in 1:length(nclust)) {
       
-      data <- as.data.frame(som_model_mex$data[[1]][which(som_model_mex$unit.classif==i),])
+      data <- as.data.frame(som_model_inf$data[[1]][which(som_model_inf$unit.classif==i),])
       
       data <- data %>% rownames_to_column('ID') %>% pivot_longer(-ID, names_to = "TimePoint", values_to = "Value")
       
@@ -2199,9 +2352,9 @@ server <- function(input, output, session) {
                sub(".*", "L. mexicana", data$Species),
                sub("", "", data$Species))
       
-      data$TimePoint <- factor(data$TimePoint, levels = c("0h","0.5h","2h","6h","12h","24h",'48h',"72h"))
+      data$TimePoint <- factor(data$TimePoint, levels = mexicana_time_df_ui$hour)
       
-      data <- data[data$TimePoint == "0h",]
+      data <- data[data$TimePoint == mexicana_time_df_ui$hour[1],]
       
       data <- data %>%
         group_by(Species) %>%
@@ -2235,6 +2388,12 @@ server <- function(input, output, session) {
   #### Pairwise analysis  time course output 
   
   output$mexicana_Boxplot <- renderPlot({
+    
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
     
     # Load  and format the plot data
     
@@ -2417,27 +2576,36 @@ server <- function(input, output, session) {
     
     ## Filter the data frame for data set user input.
     
-    if (filter == "All") {
+    if (filter == paste0(unique(df_mexicana$Species),collapse = " & ")) {
       pg_quant <- full_mexicana
     }else{
       pg_quant <- full_mexicana %>% filter(Species == filter)
     }
     
-    ## Change the column pater to user friendly reading (i. e., 0h instead of inft000).
+    ## Change the column pattern to user friendly reading (i. e., 0h instead of inft000).
     
-    for (i in 1:length(hours)) {
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
+    
+    for (i in 1:length(mexicana_time_df_ui$hour)) {
       
-      colnames(pg_quant) <- gsub(pattern = mex_sub[i], replacement = hours[i], colnames(pg_quant))
+      colnames(pg_quant) <- gsub(pattern = mexicana_time_df_ui$time_point[i], replacement = mexicana_time_df_ui$hour[i], colnames(pg_quant))
       
     }
     
     ## Dummy plot to show until user selection.
     
+    dummy_df <- data.frame(x = c(-5,5),
+                           y = c(0,10))
+    
     volcanoplot <-
-      ggplot(pg_quant, aes(x=difference_72h_0h, y=difference_72h_48h)) +
+      ggplot(dummy_df, aes(x=x, y=y))+
       theme_minimal()+
-      ylab("-log10(p.value)") +
-      xlab("log2(FoldChange)") +
+      ylab("-log<sub>10</sub>(p-value)") + 
+      xlab("log<sub>2</sub>(Fold change)") +
       theme(legend.text = element_text(size = 12))+
       theme(legend.key.size = unit(1, 'cm'))+
       theme(legend.position="top")+
@@ -2488,6 +2656,7 @@ server <- function(input, output, session) {
                               pvalue=enrich_pvalue,
                               linetype=volcano_threshold_linetype,
                               size=volcano_threshold_linesize)
+      
       pg_quant$enriched <- as.factor(my_enriched$enriched)
       
       
@@ -2561,10 +2730,10 @@ server <- function(input, output, session) {
         scale_size_manual(values=c(`TRUE.FALSE`=1, `FALSE.FALSE`=.5, `TRUE.TRUE`=1.2, `FALSE.TRUE`=1),
                           guide="none")+
         coord_cartesian(xlim=c(-max_x_value,max_x_value), ylim=c(-.8,max_y_value)) +
-        ylab("-log10(p.value)") +
-        xlab("log2(FoldChange)") +
-        annotate('text', label=exp_a, x=max_x_value / 2, y=-.4) +
-        annotate('text', label=exp_b, x=-max_x_value / 2, y=-.4)+
+        ylab("-log<sub>10</sub>(p-value)") + 
+        xlab("log<sub>2</sub>(Fold change)") +
+        annotate('text', label=exp_a, x=max_x_value / 2, y=-.4,size = 6) +
+        annotate('text', label=exp_b, x=-max_x_value / 2, y=-.4,size = 6)+
         theme_minimal()+
         theme(legend.text = element_text(size = 14))+
         theme(legend.key.size = unit(1, 'cm'))+
@@ -2578,7 +2747,7 @@ server <- function(input, output, session) {
     }
     
     print(mexicana_Volcanoplot)
-    
+   
   })
   
   #### Orthology ####
@@ -2830,15 +2999,41 @@ server <- function(input, output, session) {
     updateSelectizeInput(
       session,
       'infantum_ui_selectedIDs',
-      choices=infantum_MainDataTable1()[['Majority.protein.IDs']][as.numeric(input$infantum_MainDataTable_rows_selected)],
-      selected=infantum_MainDataTable1()[['Majority.protein.IDs']][as.numeric(input$infantum_MainDataTable_rows_selected)]
+      choices=infantum_MainDataTable3()[['Majority.protein.IDs']][as.numeric(input$infantum_MainDataTable_rows_selected)],
+      selected=infantum_MainDataTable3()[['Majority.protein.IDs']][as.numeric(input$infantum_MainDataTable_rows_selected)]
+    )
+  })
+  
+  observe({
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
+    
+    updateSelectInput(session = session,
+                      inputId = 'infantum_referenceTP',
+                      choices = infantum_time_df_ui$hour
+    )
+  })
+  
+  observe({
+    if(length(input$infantum_ui_timepointID) > 0) {
+      infantum_time_df_ui <- infantum_time_df %>% filter(hour %in% input$infantum_ui_timepointID)
+    }else{
+      infantum_time_df_ui <- infantum_time_df
+    }
+    
+    updateSelectInput(session = session,
+                      inputId = 'infantum_TP',
+                      choices = infantum_time_df_ui$hour
     )
   })
   
   observeEvent(input$update_infantum_MainDataTable, {
     rows <-
       match(input$infantum_ui_selectedIDs,
-            infantum_MainDataTable1()[['Majority.protein.IDs']])
+            infantum_MainDataTable3()[['Majority.protein.IDs']])
     selectRows(infantum_MainDataTable_proxy,
                as.numeric(rows))
   })
@@ -2849,15 +3044,41 @@ server <- function(input, output, session) {
     updateSelectizeInput(
       session,
       'major_ui_selectedIDs',
-      choices=major_MainDataTable1()[['Majority.protein.IDs']][as.numeric(input$major_MainDataTable_rows_selected)],
-      selected=major_MainDataTable1()[['Majority.protein.IDs']][as.numeric(input$major_MainDataTable_rows_selected)]
+      choices=major_MainDataTable3()[['Majority.protein.IDs']][as.numeric(input$major_MainDataTable_rows_selected)],
+      selected=major_MainDataTable3()[['Majority.protein.IDs']][as.numeric(input$major_MainDataTable_rows_selected)]
+    )
+  })
+  
+  observe({
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
+    
+    updateSelectInput(session = session,
+                      inputId = 'major_referenceTP',
+                      choices = major_time_df_ui$hour
+    )
+  })
+  
+  observe({
+    if(length(input$major_ui_timepointID) > 0) {
+      major_time_df_ui <- major_time_df %>% filter(hour %in% input$major_ui_timepointID)
+    }else{
+      major_time_df_ui <- major_time_df
+    }
+    
+    updateSelectInput(session = session,
+                      inputId = 'major_TP',
+                      choices = major_time_df_ui$hour
     )
   })
   
   observeEvent(input$update_major_MainDataTable, {
     rows <-
       match(input$major_ui_selectedIDs,
-            major_MainDataTable1()[['Majority.protein.IDs']])
+            major_MainDataTable3()[['Majority.protein.IDs']])
     selectRows(major_MainDataTable_proxy,
                as.numeric(rows))
   })
@@ -2868,15 +3089,41 @@ server <- function(input, output, session) {
     updateSelectizeInput(
       session,
       'mexicana_ui_selectedIDs',
-      choices=mexicana_MainDataTable1()[['Majority.protein.IDs']][as.numeric(input$mexicana_MainDataTable_rows_selected)],
-      selected=mexicana_MainDataTable1()[['Majority.protein.IDs']][as.numeric(input$mexicana_MainDataTable_rows_selected)]
+      choices=mexicana_MainDataTable3()[['Majority.protein.IDs']][as.numeric(input$mexicana_MainDataTable_rows_selected)],
+      selected=mexicana_MainDataTable3()[['Majority.protein.IDs']][as.numeric(input$mexicana_MainDataTable_rows_selected)]
+    )
+  })
+  
+  observe({
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
+    
+    updateSelectInput(session = session,
+                      inputId = 'mexicana_referenceTP',
+                      choices = mexicana_time_df_ui$hour
+    )
+  })
+  
+  observe({
+    if(length(input$mexicana_ui_timepointID) > 0) {
+      mexicana_time_df_ui <- mexicana_time_df %>% filter(hour %in% input$mexicana_ui_timepointID)
+    }else{
+      mexicana_time_df_ui <- mexicana_time_df
+    }
+    
+    updateSelectInput(session = session,
+                      inputId = 'mexicana_TP',
+                      choices = mexicana_time_df_ui$hour
     )
   })
   
   observeEvent(input$update_mexicana_MainDataTable, {
     rows <-
       match(input$mexicana_ui_selectedIDs,
-            mexicana_MainDataTable1()[['Majority.protein.IDs']])
+            mexicana_MainDataTable3()[['Majority.protein.IDs']])
     selectRows(mexicana_MainDataTable_proxy,
                as.numeric(rows))
   })
